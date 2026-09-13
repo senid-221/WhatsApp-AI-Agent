@@ -9,31 +9,33 @@ router.get("/", (req, res) => {
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
+  console.log("Webhook verification request", { mode, hasToken: Boolean(token), hasChallenge: Boolean(challenge) });
+
   if (mode === "subscribe" && token === process.env.VERIFY_TOKEN) {
     return res.status(200).send(challenge);
   }
 
-  return res.sendStatus(403);
+  return res.status(403).send("Forbidden");
 });
 
 router.post("/", async (req, res) => {
-  try {
-    const message = req.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  // Acknowledge Meta quickly to avoid webhook retries/timeouts.
+  res.sendStatus(200);
 
-    if (!message || message.type !== "text") {
-      return res.sendStatus(200);
-    }
+  try {
+    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+    const message = value?.messages?.[0];
+
+    if (!message || message.type !== "text") return;
 
     const from = message.from;
-    const text = message.text?.body;
+    const text = message.text?.body?.trim();
+    if (!from || !text) return;
 
     const reply = await getAIReply(text);
     await sendWhatsAppMessage(from, reply);
-
-    return res.sendStatus(200);
   } catch (error) {
-    console.error("LUMIA webhook error:", error.message);
-    return res.sendStatus(500);
+    console.error("LUMIA webhook error:", error.response?.data || error.message);
   }
 });
 
