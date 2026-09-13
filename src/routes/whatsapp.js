@@ -4,22 +4,31 @@ import { sendWhatsAppMessage } from "../services/whatsapp.js";
 
 const router = Router();
 
+function verifyToken(req) {
+  const supplied = req.query["hub.verify_token"];
+  const expected = process.env.VERIFY_TOKEN;
+  return typeof supplied === "string" && typeof expected === "string" && supplied.trim() === expected.trim();
+}
+
 router.get("/", (req, res) => {
   const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  console.log("Webhook verification request", { mode, hasToken: Boolean(token), hasChallenge: Boolean(challenge) });
+  console.log("Webhook verification request", {
+    mode,
+    hasToken: Boolean(req.query["hub.verify_token"]),
+    expectedTokenConfigured: Boolean(process.env.VERIFY_TOKEN),
+    hasChallenge: Boolean(challenge),
+  });
 
-  if (mode === "subscribe" && token === process.env.VERIFY_TOKEN) {
-    return res.status(200).send(challenge);
+  if (mode === "subscribe" && verifyToken(req) && challenge) {
+    return res.status(200).type("text/plain").send(challenge);
   }
 
   return res.status(403).send("Forbidden");
 });
 
 router.post("/", async (req, res) => {
-  // Acknowledge Meta quickly to avoid webhook retries/timeouts.
   res.sendStatus(200);
 
   try {
@@ -32,6 +41,7 @@ router.post("/", async (req, res) => {
     const text = message.text?.body?.trim();
     if (!from || !text) return;
 
+    console.log(`LUMIA received message from ${from}`);
     const reply = await getAIReply(text);
     await sendWhatsAppMessage(from, reply);
   } catch (error) {
