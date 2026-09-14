@@ -62,10 +62,9 @@ export async function startTypingIndicator(to, messageId) {
         recipient_type: "individual",
         to,
         type: "text",
-        message: undefined,
-        typing_indicator: {
-          type: "text"
-        }
+        text: { body: "..." },
+        typing_indicator: { type: "text" },
+        message_id: messageId
       },
       { headers: getHeaders(accessToken), timeout: 10000 }
     );
