@@ -31,14 +31,14 @@ router.post("/", async (req, res) => {
     if (!from || !text) return;
 
     console.log("LUMIA received message from " + from);
-    const conversation = getConversation(from);
+    const conversation = await getConversation(from);
 
     try { await showTypingIndicator(messageId); }
     catch (typingError) { console.warn("LUMIA typing indicator error:", typingError.response?.data || typingError.message); }
 
     const reply = await getAIReply(text, conversation);
     await sendWhatsAppMessage(from, reply);
-    saveConversationTurn(from, text, reply);
+    await saveConversationTurn(from, text, reply);
   } catch (error) {
     console.error("LUMIA webhook error:", error.response?.data || error.message);
   }
