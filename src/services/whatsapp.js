@@ -53,8 +53,6 @@ export async function markMessageAsRead(messageId) {
 }
 
 export async function startTypingIndicator(_to, _messageId) {
-  // Meta's WhatsApp Cloud API couples the typing indicator with marking
-  // the incoming message as read. Use markMessageAsRead() for both.
   return false;
 }
 
@@ -63,7 +61,6 @@ export async function sendTypingIndicator(_messageId, _to) {
 }
 
 export async function stopTypingIndicator(messageId) {
-  // WhatsApp Cloud API automatically dismisses typing when the business reply is sent.
   return Boolean(messageId);
 }
 
