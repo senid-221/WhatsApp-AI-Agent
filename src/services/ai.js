@@ -62,11 +62,6 @@ async function getAntigravityReply(ai, context) {
     agent: process.env.ANTIGRAVITY_AGENT || "antigravity-preview-05-2026",
     input: context,
     environment: "remote",
-    agent_config: {
-      type: "antigravity",
-      model: process.env.ANTIGRAVITY_MODEL || "gemini-3.8-flash",
-      max_total_tokens: Number(process.env.ANTIGRAVITY_MAX_TOTAL_TOKENS || 12000)
-    },
     tools: [
       { type: "google_search" },
       { type: "url_context" }
@@ -96,19 +91,36 @@ export async function getAIReply(
     `Response variation seed: ${randomSeed()}`
   ].join("\n\n");
 
-  if (antigravityEnabled()) {
-    try {
-      const reply = await getAntigravityReply(ai, context);
-      return reply || "Mbabarira, sinabashije gutegura igisubizo. Ongera ugerageze.";
-    } catch (error) {
-      console.error("LUMIA Antigravity request failed:", error?.message || error);
-      return "Mbabarira, LUMIA AI ntiyabashije kubona igisubizo kuri ubu. Ongera ugerageze akanya gato.";
-    }
-  }
-
   const sessionRule = conversation.isNewSession
     ? "Iki ni ikiganiro gishya. Tangira mu buryo busanzwe kandi bugufi gusa igihe greeting ikenewe."
     : "Iki ni ikiganiro gikomeje. Ntusubire kuri greeting cyangwa kuri answer yabanje. Komeza ukoresheje context iri muri conversation.";
+
+  if (antigravityEnabled()) {
+    try {
+      const reply = await getAntigravityReply(ai, [
+        context,
+        "Amabwiriza ya LUMIA:",
+        "Uri LUMIA, umufasha wa AI uvugana n'abantu kuri WhatsApp.",
+        "Kora nk'umuntu ufite ubwenge n'ubushishozi, si FAQ bot kandi si menu bot.",
+        "Banza usubize icyo customer yabajije. Baza follow-up imwe gusa iyo koko ikenewe.",
+        "Short replies nka Yego, Hoya, Oya, Okay, Sawa na Murakoze zisobanurwe uhereye kuri context.",
+        "Ntukoporore answer yabanje gusa kubera ko ikibazo gisa; hindura wording ariko facts zigume zimwe.",
+        "Ku products, prices, stock, sellers na links bya LUMIA, koresha gusa marketplace context yatanzwe. Ntuhimbe.",
+        "Iyo exact product link yatanzwe, uyikoreshe uko iri.",
+        "Iyo customer asabye amakuru agezweho cyangwa yo kuri internet, koresha Google Search.",
+        "Ntukoreshe Markdown cyangwa stars. Koresha paragraphs ngufi zisomeka kuri WhatsApp.",
+        "Subiza mu rurimi rwa customer. Niba ari Kinyarwanda, koresha Kinyarwanda gisanzwe kandi cyumvikana.",
+        "Ntukoreshe imvugo nka 'As an AI' kandi ntwerekane reasoning.",
+        sessionRule,
+        "Intego ni ugufasha customer mu buryo bwa natural nk'umufasha w'umuntu ku giti cye."
+      ].join("\n"));
+
+      return reply || "Mbabarira, sinabashije gutegura igisubizo. Ongera ugerageze.";
+    } catch (error) {
+      console.error("LUMIA Antigravity request failed:", error?.response?.data || error?.message || error);
+      return "Mbabarira, LUMIA AI ntiyabashije kubona igisubizo kuri ubu. Ongera ugerageze akanya gato.";
+    }
+  }
 
   const request = {
     model: process.env.GEMINI_MODEL || "gemini-3.6-flash",
