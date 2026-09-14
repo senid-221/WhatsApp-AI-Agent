@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { getAIReply } from "../services/ai.js";
 import { sendWhatsAppMessage, markMessageAsRead, startTypingIndicator, stopTypingIndicator } from "../services/whatsapp.js";
 import { getConversation, saveConversationTurn } from "../services/conversationMemory.js";
 import { getDatabase } from "../services/database.js";
@@ -21,11 +20,9 @@ function productLink(productId) {
   return `${MARKET_URL}?product=${encodeURIComponent(productId)}`;
 }
 
-async function marketplaceReply(text, phone) {
+async function marketplaceReply(text) {
   const db = getDatabase();
   const q = normalize(text);
-
-  // Search both the marketplace catalogue and approved partner products.
   const products = (await db.query(`
     SELECT id, name, category, description, price, currency, NULL::integer AS partner_id, 'marketplace' AS source
     FROM marketplace_products
@@ -43,12 +40,10 @@ async function marketplaceReply(text, phone) {
     return "Muraho! Murakaza neza kuri LUMIA Marketplace. 😊\n\nNi iki ushaka kugura? Hitamo category cyangwa andika izina ry'igicuruzwa:\n" + categories.map((c, i) => `${i + 1}. ${c}`).join("\n");
   }
 
-  // Prefer an exact product-name match over broad keyword matches.
   const exactMatches = products.filter(p => {
     const name = normalize(p.name);
     return name && (q === name || q.includes(name) || name.includes(q));
   });
-
   const words = q.split(/\s+/).filter(w => w.length > 2);
   const matches = exactMatches.length ? exactMatches : products.filter(p => {
     const hay = normalize(`${p.name} ${p.category} ${p.description || ""}`);
@@ -79,35 +74,33 @@ router.get("/", (req, res) => {
 
 router.post("/", async (req, res) => {
   res.sendStatus(200);
+
   try {
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
     if (!message || message.type !== "text") return;
-    const from = message.from;
-    const text = message.text?.body?.trim();
-    const messageId = message.id;
+
+    const from = String(message.from || "").trim();
+    const text = String(message.text?.body || "").trim();
+    const messageId = String(message.id || "").trim();
     if (!from || !text) return;
 
-    console.log("LUMIA Marketplace received message from " + from);
+    console.log(`LUMIA Marketplace received message from ${from}`);
     await getConversation(from);
 
-    // Read receipt should happen immediately. Typing is started independently so a typing API
-    // issue cannot prevent the read state or the actual marketplace reply.
-    await markMessageAsRead(messageId).catch(error => {
-      console.warn("LUMIA could not mark the incoming message as read:", error?.response?.data?.error?.message || error.message);
-    });
-    await startTypingIndicator(messageId).catch(error => {
-      console.warn("LUMIA could not start typing indicator:", error?.response?.data?.error?.message || error.message);
-    });
+    // Read the customer's incoming message immediately.
+    const readOk = await markMessageAsRead(messageId);
+
+    // Typing indicator must target the customer's WhatsApp number.
+    const typingOk = await startTypingIndicator(from, messageId);
+    console.log(`LUMIA status: read=${readOk}, typing=${typingOk}, messageId=${messageId}`);
 
     try {
-      const reply = await marketplaceReply(text, from);
+      const reply = await marketplaceReply(text);
       await sendWhatsAppMessage(from, reply);
       await saveConversationTurn(from, text, reply);
     } finally {
-      await stopTypingIndicator(messageId).catch(error => {
-        console.warn("LUMIA could not stop typing indicator:", error?.response?.data?.error?.message || error.message);
-      });
+      await stopTypingIndicator(messageId);
     }
   } catch (error) {
     console.error("LUMIA webhook error:", error.response?.data || error.message);
