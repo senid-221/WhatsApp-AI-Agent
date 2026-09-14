@@ -16,6 +16,17 @@ app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok", service: "LUMIA" });
 });
 
+app.get("/api/portal/conversations", async (req, res) => {
+  try {
+    const { getDatabase } = await import("./services/database.js");
+    const db = getDatabase();
+    const result = await db.query("SELECT phone, MAX(created_at) AS last_message_at, COUNT(*)::int AS message_count FROM conversation_messages GROUP BY phone ORDER BY last_message_at DESC");
+    res.json({ conversations: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.use("/webhook", whatsappRouter);
 
 app.get("/api/portal/overview", async (req, res) => {
