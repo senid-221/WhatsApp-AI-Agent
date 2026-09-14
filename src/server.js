@@ -141,6 +141,77 @@ app.get("/api/portal/history", async (req, res) => {
   }
 });
 
+
+app.post("/api/marketplace/partners/apply", async (req,res)=>{
+  try {
+    const { businessName, ownerName, phone, whatsappNumber, location="", businessCategory="", description="", onlineStoreUrl="", paymentReference="" } = req.body;
+    if(!businessName || !ownerName || !phone || !whatsappNumber) return res.status(400).json({error:"businessName, ownerName, phone and whatsappNumber are required"});
+    const { getDatabase } = await import("./services/database.js");
+    const result = await getDatabase().query(
+      "INSERT INTO marketplace_partners (business_name,owner_name,phone,whatsapp_number,location,business_category,description,online_store_url,payment_reference,payment_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",
+      [businessName,ownerName,phone,whatsappNumber,location,businessCategory,description,onlineStoreUrl,paymentReference,paymentReference?"submitted":"unpaid"]
+    );
+    res.status(201).json({partner:result.rows[0],payment:{amount:40000,currency:"RWF",method:"MOMO PAY",code:"935237"}});
+  } catch(error){res.status(500).json({error:"Unable to submit partner application"});}
+});
+
+app.get("/api/portal/partners", async (req,res)=>{
+  try { const {getDatabase}=await import("./services/database.js"); const result=await getDatabase().query("SELECT * FROM marketplace_partners ORDER BY created_at DESC"); res.json({partners:result.rows}); }
+  catch(error){res.status(500).json({error:"Unable to load partners"});}
+});
+
+app.patch("/api/portal/partners/:id", async (req,res)=>{
+  try {
+    const {status,paymentStatus}=req.body;
+    const allowed=["pending","approved","rejected","suspended"];
+    const payAllowed=["unpaid","submitted","verified","rejected"];
+    if(status && !allowed.includes(status)) return res.status(400).json({error:"Invalid partner status"});
+    if(paymentStatus && !payAllowed.includes(paymentStatus)) return res.status(400).json({error:"Invalid payment status"});
+    const {getDatabase}=await import("./services/database.js");
+    const result=await getDatabase().query(
+      "UPDATE marketplace_partners SET status=COALESCE($1,status), payment_status=COALESCE($2,payment_status), approved_at=CASE WHEN $1='approved' THEN NOW() ELSE approved_at END WHERE id=$3 RETURNING *",
+      [status||null,paymentStatus||null,req.params.id]
+    );
+    if(!result.rows[0]) return res.status(404).json({error:"Partner not found"});
+    res.json({partner:result.rows[0]});
+  } catch(error){res.status(500).json({error:"Unable to update partner"});}
+});
+
+app.post("/api/portal/partners/:id/products", async (req,res)=>{
+  try {
+    const {name,category,description="",price=0,currency="RWF",imageUrl="",inStock=true}=req.body;
+    if(!name||!category)return res.status(400).json({error:"name and category are required"});
+    const {getDatabase}=await import("./services/database.js");
+    const result=await getDatabase().query("INSERT INTO partner_products (partner_id,name,category,description,price,currency,image_url,in_stock) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",[req.params.id,name,category,description,price,currency,imageUrl,inStock]);
+    res.status(201).json({product:result.rows[0]});
+  }catch(error){res.status(500).json({error:"Unable to create partner product"});}
+});
+
+app.get("/api/marketplace/partner-products", async (req,res)=>{
+  try {
+    const {getDatabase}=await import("./services/database.js");
+    const result=await getDatabase().query("SELECT pp.*,p.business_name,p.whatsapp_number,p.online_store_url FROM partner_products pp JOIN marketplace_partners p ON p.id=pp.partner_id WHERE pp.in_stock=TRUE AND p.status='approved' ORDER BY pp.id DESC");
+    res.json({products:result.rows});
+  }catch(error){res.status(500).json({error:"Unable to load partner products"});}
+});
+
+app.post("/api/marketplace/partner-orders", async (req,res)=>{
+  try {
+    const {partnerId,partnerProductId,customerName="",customerPhone,customerWhatsapp="",productName,quantity=1,paymentMethod="cash_on_delivery",paymentStatus="pending"}=req.body;
+    if(!partnerId||!customerPhone||!productName)return res.status(400).json({error:"partnerId, customerPhone and productName are required"});
+    const {getDatabase}=await import("./services/database.js");
+    const db=getDatabase();
+    const partner=(await db.query("SELECT * FROM marketplace_partners WHERE id=$1 AND status='approved'",[partnerId])).rows[0];
+    if(!partner)return res.status(404).json({error:"Approved partner not found"});
+    const proof=`LUMIA Marketplace Proof: ${customerName||"Customer"} requested ${productName} (Qty: ${quantity}). Customer WhatsApp: ${customerWhatsapp||customerPhone}. Payment: ${paymentMethod}. Status: ${paymentStatus}.`;
+    const result=await db.query("INSERT INTO partner_orders (partner_id,partner_product_id,customer_name,customer_phone,customer_whatsapp,product_name,quantity,payment_method,payment_status,proof_message) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",[partnerId,partnerProductId||null,customerName,customerPhone,customerWhatsapp,productName,quantity,paymentMethod,paymentStatus,proof]);
+    const {sendWhatsAppMessage}=await import("./services/whatsapp.js");
+    try{await sendWhatsAppMessage(partner.whatsapp_number,proof);}catch(e){console.warn("Partner notification failed:",e.response?.data||e.message);}
+    res.status(201).json({order:result.rows[0],proof});
+  }catch(error){res.status(500).json({error:"Unable to create partner order"});}
+});
+
+
 app.use("/webhook", whatsappRouter);
 
 app.get("/api/portal/overview", async (req, res) => {
