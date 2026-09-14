@@ -41,7 +41,7 @@ async function marketplaceReply(text, phone) {
     return "Ni byiza! 😊 Mbwira igicuruzwa ushaka kugura. Urashobora guhitamo: imyenda, laptops, desktops, mobile phones, flat screens, solar panels, furniture, sports, health & care, toys, websites cyangwa mobile apps.";
   }
 
-  return "Murakoze kutwandikira. 😊 LUMIA AI yemerewe gutanga amakuru ajyanye gusa na LUMIA Marketplace: ibicuruzwa, services, ibiciro, ubwiza bw'ibicuruzwa n'uburyo bwo kugura. Mumbabarire, sinshobora gutanga andi makuru atajyanye na LUMIA Marketplace.\n\nMbwira igicuruzwa ushaka kugura.";
+  return "Murakoze kutwandikira. 😊 Developer wa LUMIA yambujije gutanga andi makuru adafite aho ahuriye na LUMIA Marketplace. Mumbabarire.\n\nMbwira igicuruzwa ushaka kugura.";
 }
 
 router.get("/", (req, res) => {
