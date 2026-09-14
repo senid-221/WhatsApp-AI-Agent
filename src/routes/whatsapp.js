@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { getAIReply } from "../services/ai.js";
 import { sendWhatsAppMessage, markMessageAsRead, startTypingIndicator, stopTypingIndicator } from "../services/whatsapp.js";
 import { getConversation, saveConversationTurn } from "../services/conversationMemory.js";
 import { getDatabase } from "../services/database.js";
@@ -20,7 +21,16 @@ function productLink(productId) {
   return `${MARKET_URL}?product=${encodeURIComponent(productId)}`;
 }
 
-async function marketplaceReply(text) {
+function isSimpleAffirmation(text) {
+  return /^(yego|yee|ego|yes|oya|hoya|ntabwo|none|okay|ok|sawa|murakoze|thank you|thanks|ni sawa|birashoboka|ndabyemeye)[.!?\s]*$/i.test(text.trim());
+}
+
+function isMarketplaceIntent(text) {
+  const q = normalize(text);
+  return /\b(gura|kugura|igiciro|price|product|igicuruzwa|order|commande|shop|market|available|mufite|mufiteho|ndashaka|shaka|laptop|phone|telefoni|imyenda|shirt|computer|solar|furniture|ibikoresho|serivisi|website|app|mobile)\b/i.test(q);
+}
+
+async function marketplaceReply(text, conversation) {
   const db = getDatabase();
   const q = normalize(text);
   const products = (await db.query(`
@@ -35,9 +45,14 @@ async function marketplaceReply(text) {
     ORDER BY id
   `)).rows;
 
+  if (isSimpleAffirmation(text) && conversation?.history?.length) {
+    const last = conversation.history[conversation.history.length - 1];
+    return `Nibyo 😊 ${isMarketplaceIntent(last?.text || "") ? "Mbwira igicuruzwa ushaka cyangwa nkubwire ibiciro n'amahitamo bihari." : "Hari igicuruzwa ushaka kugura cyangwa ushaka ko nkufasha guhitamo?"}`;
+  }
+
   if (/^(hi|hello|muraho|mwiriwe|mwaramutse|amakuru)/i.test(text.trim())) {
     const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
-    return "Muraho! Murakaza neza kuri LUMIA Marketplace. 😊\n\nNi iki ushaka kugura? Hitamo category cyangwa andika izina ry'igicuruzwa:\n" + categories.map((c, i) => `${i + 1}. ${c}`).join("\n");
+    return "Muraho! Murakaza neza kuri LUMIA Marketplace. 😊\n\nNi iki ushaka kugura? Ushobora kuvuga izina ry'igicuruzwa cyangwa category ushaka." + (categories.length ? `\n\nUrugero: ${categories.slice(0, 5).join(", ")}.` : "");
   }
 
   const exactMatches = products.filter(p => {
@@ -55,14 +70,15 @@ async function marketplaceReply(text) {
       const price = Number(p.price) > 0 ? Number(p.price).toLocaleString() + " " + (p.currency || "RWF") : "Igiciro ubisabire";
       return `${i + 1}. ${p.name}\n   ${p.description || "Igicuruzwa kiboneka muri LUMIA Marketplace."}\n   Igiciro: ${price}\n   Link: ${productLink(p.id)}`;
     }).join("\n\n");
-    return `Dore ibicuruzwa bijyanye n'ibyo ushaka:\n\n${list}\n\nAndika izina cyangwa numero y'igicuruzwa ushaka, cyangwa fungura link kugira ngo ugure.`;
+    return `Dore ibyo nabonye bijyanye n'icyo ushaka:\n\n${list}\n\nHitamo igicuruzwa ushaka, cyangwa umbwire niba ushaka ibindi bisa na byo.`;
   }
 
   if (/buy|gura|order|shaka kugura|ndashaka/i.test(q)) {
-    return "Ni byiza! 😊 Mbwira igicuruzwa ushaka kugura. Urashobora guhitamo: imyenda, laptops, desktops, mobile phones, flat screens, solar panels, furniture, sports, health & care, toys, websites cyangwa mobile apps.";
+    return "Ni byiza 😊 Mbwira igicuruzwa ushaka kugura, nk'urugero laptop, telefoni, imyenda, furniture cyangwa solar.";
   }
 
-  return "Murakoze kutwandikira. 😊 Developer wa LUMIA yambujije gutanga andi makuru adafite aho ahuriye na LUMIA Marketplace. Mumbabarire.\n\nMbwira igicuruzwa ushaka kugura.";
+  // Only use the refusal for clearly unrelated requests, not short confirmations or natural follow-ups.
+  return "Hari igicuruzwa cyangwa serivisi ushaka muri LUMIA Marketplace? 😊";
 }
 
 router.get("/", (req, res) => {
@@ -86,17 +102,14 @@ router.post("/", async (req, res) => {
     if (!from || !text) return;
 
     console.log(`LUMIA Marketplace received message from ${from}`);
-    await getConversation(from);
+    const conversation = await getConversation(from);
 
-    // Read the customer's incoming message immediately.
     const readOk = await markMessageAsRead(messageId);
-
-    // Typing indicator must target the customer's WhatsApp number.
     const typingOk = await startTypingIndicator(from, messageId);
     console.log(`LUMIA status: read=${readOk}, typing=${typingOk}, messageId=${messageId}`);
 
     try {
-      const reply = await marketplaceReply(text);
+      const reply = await marketplaceReply(text, conversation);
       await sendWhatsAppMessage(from, reply);
       await saveConversationTurn(from, text, reply);
     } finally {
