@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getAIReply } from "../services/ai.js";
-import { sendWhatsAppMessage, showTypingIndicator } from "../services/whatsapp.js";
+import { sendWhatsAppMessage, markMessageAsRead, startTypingIndicator, stopTypingIndicator } from "../services/whatsapp.js";
 import { getConversation, saveConversationTurn } from "../services/conversationMemory.js";
 import { getDatabase } from "../services/database.js";
 
@@ -63,12 +63,26 @@ router.post("/", async (req, res) => {
     if (!from || !text) return;
 
     console.log("LUMIA Marketplace received message from " + from);
-    const conversation = await getConversation(from);
-    // Typing is optional and must never prevent the Marketplace reply.\n    await showTypingIndicator(messageId);
+    await getConversation(from);
 
-    const reply = await marketplaceReply(text, from);
-    await sendWhatsAppMessage(from, reply);
-    await saveConversationTurn(from, text, reply);
+    // Acknowledge the incoming WhatsApp message immediately, then keep the typing state on
+    // while LUMIA prepares its response. Failures here must never block the reply.
+    const typingStarted = await startTypingIndicator(messageId);
+    if (!typingStarted) {
+      await markMessageAsRead(messageId).catch(error => {
+        console.warn("LUMIA could not mark the incoming message as read:", error?.response?.data?.error?.message || error.message);
+      });
+    }
+
+    try {
+      const reply = await marketplaceReply(text, from);
+      await sendWhatsAppMessage(from, reply);
+      await saveConversationTurn(from, text, reply);
+    } finally {
+      await stopTypingIndicator(messageId).catch(error => {
+        console.warn("LUMIA could not stop typing indicator:", error?.response?.data?.error?.message || error.message);
+      });
+    }
   } catch (error) {
     console.error("LUMIA webhook error:", error.response?.data || error.message);
   }
