@@ -104,6 +104,9 @@ export async function initDatabase() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
 
+  await db.query("ALTER TABLE marketplace_partners ADD COLUMN IF NOT EXISTS password_hash TEXT");
+  await db.query("ALTER TABLE marketplace_partners ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ");
+
   const seeded = await db.query("SELECT COUNT(*)::int AS count FROM marketplace_products");
   if (seeded.rows[0].count === 0) {
     const products = [
