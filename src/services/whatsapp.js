@@ -51,8 +51,8 @@ export async function markMessageAsRead(messageId) {
   }
 }
 
-export async function startTypingIndicator(messageId) {
-  if (!messageId) return false;
+export async function startTypingIndicator(to, messageId) {
+  if (!to || !messageId) return false;
   try {
     const { accessToken, phoneNumberId } = getConfig();
     await axios.post(
@@ -60,31 +60,12 @@ export async function startTypingIndicator(messageId) {
       {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: undefined,
+        to,
         type: "text",
-        text: { body: " " }
-      },
-      { headers: getHeaders(accessToken), timeout: 10000 }
-    );
-    return true;
-  } catch (error) {
-    const meta = apiError(error);
-    console.warn("LUMIA typing indicator failed:", meta?.message || error.message);
-    return false;
-  }
-}
-
-export async function sendTypingIndicator(messageId) {
-  if (!messageId) return false;
-  try {
-    const { accessToken, phoneNumberId } = getConfig();
-    await axios.post(
-      getUrl(phoneNumberId),
-      {
-        messaging_product: "whatsapp",
-        status: "read",
-        message_id: messageId,
-        typing_indicator: { type: "text" }
+        message: undefined,
+        typing_indicator: {
+          type: "text"
+        }
       },
       { headers: getHeaders(accessToken), timeout: 10000 }
     );
@@ -97,15 +78,18 @@ export async function sendTypingIndicator(messageId) {
   }
 }
 
+export async function sendTypingIndicator(messageId, to) {
+  return startTypingIndicator(to, messageId);
+}
+
 export async function stopTypingIndicator(messageId) {
-  // WhatsApp Cloud API typing indicator automatically stops when the business sends a message.
   return Boolean(messageId);
 }
 
-export async function showTypingIndicator(messageId) {
+export async function showTypingIndicator(to, messageId) {
   const read = await markMessageAsRead(messageId);
-  const typing = await sendTypingIndicator(messageId);
-  return read && typing;
+  const typing = await startTypingIndicator(to, messageId);
+  return { read, typing };
 }
 
 export async function sendWhatsAppMessage(to, text) {
