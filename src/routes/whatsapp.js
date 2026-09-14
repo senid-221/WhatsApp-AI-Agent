@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { getAIReply } from "../services/ai.js";
 import { sendWhatsAppMessage, showTypingIndicator, stopTypingIndicator } from "../services/whatsapp.js";
 import { getConversation, saveConversationTurn } from "../services/conversationMemory.js";
 import { getDatabase } from "../services/database.js";
@@ -12,100 +13,63 @@ function verifyToken(req) {
   return typeof supplied === "string" && typeof expected === "string" && supplied.trim() === expected.trim();
 }
 
-function normalize(value) {
-  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
 function productLink(productId) {
   return `${MARKET_URL}?product=${encodeURIComponent(productId)}`;
 }
 
-function isSimpleAffirmation(text) {
-  return /^(yego|yee|ego|yes|oya|hoya|ntabwo|none|okay|ok|sawa|murakoze|thank you|thanks|ni sawa|birashoboka|ndabyemeye)[.!?\s]*$/i.test(text.trim());
-}
-
-function isClearlyUnrelated(text) {
-  const q = normalize(text);
-  return /\b(politics?|president|election|football|soccer|weather|recipe|religion|medical|disease|doctor|law|legal|coding|programming|crypto|bitcoin|news)\b/i.test(q);
-}
-
-function hasMarketplaceIntent(text) {
-  const q = normalize(text);
-  return /\b(gura|kugura|igiciro|price|product|igicuruzwa|order|commande|shop|market|available|mufite|mufiteho|ndashaka|shaka|laptop|phone|telefoni|imyenda|shirt|computer|solar|furniture|ibikoresho|serivisi|website|app|mobile)\b/i.test(q);
-}
-
-function recentUserMessage(conversation) {
-  return [...(conversation?.history || [])].reverse().find(item => item?.role === "user")?.text || "";
-}
-
-async function marketplaceReply(text, conversation) {
+async function getMarketplaceContext() {
   const db = getDatabase();
-  const q = normalize(text);
-  const products = (await db.query(`
-    SELECT id, name, category, description, price, currency, NULL::integer AS partner_id, 'marketplace' AS source
+  const result = await db.query(`
+    SELECT id, name, category, description, price, currency, in_stock,
+           NULL::integer AS partner_id, 'marketplace' AS source
     FROM marketplace_products
-    WHERE in_stock=TRUE
+    WHERE in_stock = TRUE
     UNION ALL
-    SELECT pp.id, pp.name, pp.category, pp.description, pp.price, pp.currency, pp.partner_id, 'partner' AS source
+    SELECT pp.id, pp.name, pp.category, pp.description, pp.price, pp.currency, pp.in_stock,
+           pp.partner_id, 'partner' AS source
     FROM partner_products pp
     JOIN marketplace_partners mp ON mp.id = pp.partner_id
-    WHERE pp.in_stock=TRUE AND mp.status='approved'
-    ORDER BY id
-  `)).rows;
+    WHERE pp.in_stock = TRUE AND mp.status = 'approved'
+    ORDER BY name ASC, id ASC
+  `);
 
-  if (isSimpleAffirmation(text)) {
-    const previous = recentUserMessage(conversation);
-    if (previous && hasMarketplaceIntent(previous)) {
-      return "Ni byiza 😊 Mbwira neza igicuruzwa ushaka, ndebe ibihari n'igiciro.";
-    }
-    return "Ni byiza 😊 Hari igicuruzwa ushaka kugura cyangwa ushaka ko nkufasha guhitamo?";
-  }
+  return result.rows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    description: p.description || "",
+    price: Number(p.price || 0),
+    currency: p.currency || "RWF",
+    inStock: Boolean(p.in_stock),
+    partnerId: p.partner_id,
+    source: p.source,
+    exactLink: productLink(p.id)
+  }));
+}
 
-  if (isClearlyUnrelated(text)) {
-    return "Murakoze kutwandikira. 😊 LUMIA igufasha ku bicuruzwa na serivisi biboneka muri LUMIA Marketplace. Mbwira icyo ushaka kugura, ndagufasha kugishaka.";
-  }
-
-  if (/^(hi|hello|muraho|mwiriwe|mwaramutse|amakuru)/i.test(text.trim())) {
-    const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
-    return "Muraho! Murakaza neza kuri LUMIA Marketplace. 😊\n\nNi iki ushaka kugura? Ushobora kuvuga izina ry'igicuruzwa cyangwa category ushaka." +
-      (categories.length ? `\n\nUrugero: ${categories.slice(0, 5).join(", ")}.` : "");
-  }
-
-  const exactMatches = products.filter(p => {
-    const name = normalize(p.name);
-    return name && (q === name || q.includes(name) || name.includes(q));
-  });
-
-  const words = q.split(/\s+/).filter(w => w.length > 2);
-  const matches = exactMatches.length ? exactMatches : products.filter(p => {
-    const hay = normalize(`${p.name} ${p.category} ${p.description || ""}`);
-    return words.some(w => hay.includes(w));
-  });
-
-  if (matches.length) {
-    const list = matches.slice(0, 5).map((p, i) => {
-      const price = Number(p.price) > 0 ? `${Number(p.price).toLocaleString()} ${p.currency || "RWF"}` : "Igiciro ubisabire";
-      return `${i + 1}. ${p.name}\n   ${p.description || "Igicuruzwa kiboneka muri LUMIA Marketplace."}\n   Igiciro: ${price}\n   Link: ${productLink(p.id)}`;
-    }).join("\n\n");
-    return `Dore ibyo nabonye bijyanye n'icyo ushaka:\n\n${list}\n\nHitamo igicuruzwa ushaka, cyangwa umbwire niba ushaka ibindi bisa na byo.`;
-  }
-
-  if (/buy|gura|order|shaka kugura|ndashaka/i.test(q)) {
-    return "Ni byiza 😊 Mbwira igicuruzwa ushaka kugura, nk'urugero laptop, telefoni, imyenda, furniture cyangwa solar.";
-  }
-
-  return "Hari igicuruzwa cyangwa serivisi ushaka muri LUMIA Marketplace? 😊";
+function buildMarketplaceContext(products) {
+  return [
+    "LUMIA Marketplace live catalogue:",
+    JSON.stringify(products),
+    "Use this catalogue as the source of truth for LUMIA products, prices, availability, partner products and exact product links.",
+    "Only recommend products that exist in this catalogue.",
+    "When sharing a product link, copy the exactLink for that product exactly.",
+    "Never invent a product, price, seller, stock status, feature, delivery promise or URL."
+  ].join("\n");
 }
 
 router.get("/", (req, res) => {
   const mode = req.query["hub.mode"];
   const challenge = req.query["hub.challenge"];
-  if (mode === "subscribe" && verifyToken(req) && challenge) return res.status(200).type("text/plain").send(challenge);
+  if (mode === "subscribe" && verifyToken(req) && challenge) {
+    return res.status(200).type("text/plain").send(challenge);
+  }
   return res.status(403).send("Forbidden");
 });
 
 router.post("/", async (req, res) => {
   res.sendStatus(200);
+
   try {
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
@@ -116,14 +80,25 @@ router.post("/", async (req, res) => {
     const messageId = String(message.id || "").trim();
     if (!from || !text || !messageId) return;
 
-    console.log(`LUMIA Marketplace received message from ${from}`);
+    console.log(`LUMIA received WhatsApp message from ${from}`);
+
     const conversation = await getConversation(from);
+    const products = await getMarketplaceContext();
+    const marketplaceContext = buildMarketplaceContext(products);
 
     const ux = await showTypingIndicator(from, messageId);
     console.log(`LUMIA WhatsApp UX: read=${ux.read} typing=${ux.typing} messageId=${messageId}`);
 
     try {
-      const reply = await marketplaceReply(text, conversation);
+      const aiInput = [
+        marketplaceContext,
+        "",
+        `Customer message:\n${text}`,
+        "",
+        "Respond to the customer message above using the conversation context supplied to you. Do not simply repeat the previous answer."
+      ].join("\n");
+
+      const reply = await getAIReply(aiInput, conversation);
       await sendWhatsAppMessage(from, reply);
       await saveConversationTurn(from, text, reply);
     } finally {
