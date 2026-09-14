@@ -48,17 +48,7 @@ export async function showTypingIndicator(messageId) {
       { headers: getHeaders(accessToken), timeout: 10000 }
     );
 
-    // Start the typing indicator while LUMIA prepares its response.
-    await axios.post(
-      getUrl(phoneNumberId),
-      {
-        messaging_product: "whatsapp",
-        status: "read",
-        message_id: messageId,
-        typing_indicator: { type: "text" }
-      },
-      { headers: getHeaders(accessToken), timeout: 10000 }
-    );
+    // Start the official Cloud API typing indicator after marking the message as read.\n    // The indicator remains active while the response is being prepared.\n    await axios.post(\n      getUrl(phoneNumberId),\n      {\n        messaging_product: "whatsapp",\n        status: "read",\n        message_id: messageId,\n        typing_indicator: { type: "text" }\n      },\n      { headers: getHeaders(accessToken), timeout: 10000 }\n    );\n\n    console.log("LUMIA marked message as read and started typing indicator.");
 
     return true;
   } catch (error) {
