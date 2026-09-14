@@ -82,11 +82,13 @@ router.post("/", async (req, res) => {
 
     console.log(`LUMIA received WhatsApp message from ${from}`);
 
+    // Trigger read/typing immediately, before DB work or AI generation.
+    const uxPromise = showTypingIndicator(messageId);
+
     const conversation = await getConversation(from);
     const products = await getMarketplaceContext();
     const marketplaceContext = buildMarketplaceContext(products);
-
-    const ux = await showTypingIndicator(from, messageId);
+    const ux = await uxPromise;
     console.log(`LUMIA WhatsApp UX: read=${ux.read} typing=${ux.typing} messageId=${messageId}`);
 
     try {
