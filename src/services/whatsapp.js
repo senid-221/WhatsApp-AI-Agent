@@ -33,62 +33,42 @@ export async function markMessageAsRead(messageId) {
   if (!messageId) return false;
   try {
     const { accessToken, phoneNumberId } = getConfig();
-    await axios.post(
+    const response = await axios.post(
       getUrl(phoneNumberId),
       {
         messaging_product: "whatsapp",
         status: "read",
-        message_id: messageId
+        message_id: messageId,
+        typing_indicator: { type: "text" }
       },
       { headers: getHeaders(accessToken), timeout: 10000 }
     );
-    console.log("LUMIA marked incoming WhatsApp message as read.");
+    console.log("LUMIA read+typing request accepted:", response.data);
     return true;
   } catch (error) {
     const meta = apiError(error);
-    console.warn("LUMIA read receipt failed:", meta?.message || error.message);
+    console.warn("LUMIA read+typing request failed:", meta?.message || error.message, meta || "");
     return false;
   }
 }
 
-export async function startTypingIndicator(to, messageId) {
-  if (!to || !messageId) return false;
-  try {
-    const { accessToken, phoneNumberId } = getConfig();
-    await axios.post(
-      getUrl(phoneNumberId),
-      {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "text",
-        text: { body: "" },
-        typing_indicator: { type: "text" },
-        message_id: messageId
-      },
-      { headers: getHeaders(accessToken), timeout: 10000 }
-    );
-    console.log("LUMIA started WhatsApp typing indicator.");
-    return true;
-  } catch (error) {
-    const meta = apiError(error);
-    console.warn("LUMIA typing indicator failed:", meta?.message || error.message);
-    return false;
-  }
+export async function startTypingIndicator(_to, _messageId) {
+  // Meta's WhatsApp Cloud API couples the typing indicator with marking
+  // the incoming message as read. Use markMessageAsRead() for both.
+  return false;
 }
 
-export async function sendTypingIndicator(messageId, to) {
-  return startTypingIndicator(to, messageId);
+export async function sendTypingIndicator(_messageId, _to) {
+  return false;
 }
 
 export async function stopTypingIndicator(messageId) {
+  // WhatsApp Cloud API automatically dismisses typing when the business reply is sent.
   return Boolean(messageId);
 }
 
-export async function showTypingIndicator(to, messageId) {
-  const read = await markMessageAsRead(messageId);
-  const typing = await startTypingIndicator(to, messageId);
-  return { read, typing };
+export async function showTypingIndicator(_to, messageId) {
+  return markMessageAsRead(messageId);
 }
 
 export async function sendWhatsAppMessage(to, text) {
