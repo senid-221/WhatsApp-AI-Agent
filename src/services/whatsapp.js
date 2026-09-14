@@ -28,11 +28,10 @@ async function postStatus(messageId, body, label) {
   if (!messageId) return false;
   try {
     const { accessToken, phoneNumberId } = getConfig();
-    const response = await axios.post(
-      getUrl(phoneNumberId),
-      body,
-      { headers: getHeaders(accessToken), timeout: 10000 }
-    );
+    const response = await axios.post(getUrl(phoneNumberId), body, {
+      headers: getHeaders(accessToken),
+      timeout: 10000
+    });
     console.log(`LUMIA ${label} accepted:`, response.data);
     return true;
   } catch (error) {
