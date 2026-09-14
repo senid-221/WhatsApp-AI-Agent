@@ -1,6 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import whatsappRouter from "./routes/whatsapp.js";
+import { initDatabase } from "./services/database.js";
 
 dotenv.config();
 
@@ -18,6 +19,16 @@ app.get("/health", (req, res) => {
 app.use("/webhook", whatsappRouter);
 
 const port = process.env.PORT || 3000;
-app.listen(port, "0.0.0.0", () => {
-  console.log(`LUMIA backend running on port ${port}`);
+
+async function startServer() {
+  await initDatabase();
+
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`LUMIA backend running on port ${port}`);
+  });
+}
+
+startServer().catch((error) => {
+  console.error("LUMIA failed to start:", error.message);
+  process.exit(1);
 });
