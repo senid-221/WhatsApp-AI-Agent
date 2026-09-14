@@ -48,6 +48,60 @@ app.post("/api/marketplace/orders", async (req, res) => {
   }
 });
 
+app.post("/api/portal/marketplace/products", async (req, res) => {
+  try {
+    const { name, category, description = "", price = 0, currency = "RWF", imageUrl = "", inStock = true } = req.body;
+    if (!name || !category) return res.status(400).json({ error: "name and category are required" });
+    const { getDatabase } = await import("./services/database.js");
+    const result = await getDatabase().query(
+      "INSERT INTO marketplace_products (name, category, description, price, currency, image_url, in_stock) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+      [name, category, description, price, currency, imageUrl, inStock]
+    );
+    res.status(201).json({ product: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to create product" });
+  }
+});
+
+app.put("/api/portal/marketplace/products/:id", async (req, res) => {
+  try {
+    const { name, category, description, price, currency, imageUrl, inStock } = req.body;
+    const { getDatabase } = await import("./services/database.js");
+    const result = await getDatabase().query(
+      "UPDATE marketplace_products SET name=$1, category=$2, description=$3, price=$4, currency=$5, image_url=$6, in_stock=$7 WHERE id=$8 RETURNING *",
+      [name, category, description || "", price || 0, currency || "RWF", imageUrl || "", inStock !== false, req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Product not found" });
+    res.json({ product: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to update product" });
+  }
+});
+
+app.delete("/api/portal/marketplace/products/:id", async (req, res) => {
+  try {
+    const { getDatabase } = await import("./services/database.js");
+    const result = await getDatabase().query("DELETE FROM marketplace_products WHERE id=$1 RETURNING id", [req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ error: "Product not found" });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to delete product" });
+  }
+});
+
+app.patch("/api/portal/marketplace/orders/:id", async (req, res) => {
+  try {
+    const { status } = req.body;
+    const allowed = ["pending", "confirmed", "rejected", "completed"];
+    if (!allowed.includes(status)) return res.status(400).json({ error: "Invalid status" });
+    const { getDatabase } = await import("./services/database.js");
+    const result = await getDatabase().query("UPDATE marketplace_orders SET status=$1 WHERE id=$2 RETURNING *", [status, req.params.id]);
+    res.json({ order: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to update order" });
+  }
+});
+
 app.get("/api/portal/marketplace/orders", async (req, res) => {
   try {
     const { getDatabase } = await import("./services/database.js");
