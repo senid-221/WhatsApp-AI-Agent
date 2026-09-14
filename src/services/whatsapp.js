@@ -24,44 +24,43 @@ function apiError(error) {
   return error?.response?.data?.error || null;
 }
 
-export async function markMessageAsRead(messageId) {
+async function postStatus(messageId, body, label) {
   if (!messageId) return false;
   try {
     const { accessToken, phoneNumberId } = getConfig();
     const response = await axios.post(
       getUrl(phoneNumberId),
-      { messaging_product: "whatsapp", status: "read", message_id: messageId },
+      body,
       { headers: getHeaders(accessToken), timeout: 10000 }
     );
-    console.log("LUMIA read receipt accepted:", response.data);
+    console.log(`LUMIA ${label} accepted:`, response.data);
     return true;
   } catch (error) {
     const meta = apiError(error);
-    console.warn("LUMIA read receipt failed:", meta?.message || error.message, meta || "");
+    console.warn(`LUMIA ${label} failed:`, meta?.message || error.message, meta || "");
     return false;
   }
 }
 
+export async function markMessageAsRead(messageId) {
+  return postStatus(
+    messageId,
+    { messaging_product: "whatsapp", status: "read", message_id: messageId },
+    "read receipt"
+  );
+}
+
 export async function startTypingIndicator(messageId) {
-  if (!messageId) return false;
-  try {
-    const { accessToken, phoneNumberId } = getConfig();
-    const response = await axios.post(
-      getUrl(phoneNumberId),
-      {
-        messaging_product: "whatsapp",
-        typing_indicator: { type: "text" },
-        message_id: messageId
-      },
-      { headers: getHeaders(accessToken), timeout: 10000 }
-    );
-    console.log("LUMIA typing indicator accepted:", response.data);
-    return true;
-  } catch (error) {
-    const meta = apiError(error);
-    console.warn("LUMIA typing indicator failed:", meta?.message || error.message, meta || "");
-    return false;
-  }
+  return postStatus(
+    messageId,
+    {
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: messageId,
+      typing_indicator: { type: "text" }
+    },
+    "typing indicator"
+  );
 }
 
 export async function stopTypingIndicator(messageId) {
@@ -69,9 +68,8 @@ export async function stopTypingIndicator(messageId) {
 }
 
 export async function showTypingIndicator(messageId) {
-  const read = await markMessageAsRead(messageId);
   const typing = await startTypingIndicator(messageId);
-  return { read, typing };
+  return { read: typing, typing };
 }
 
 export async function sendWhatsAppMessage(to, text) {
