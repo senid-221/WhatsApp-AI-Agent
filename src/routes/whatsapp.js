@@ -1,6 +1,5 @@
 import { Router } from "express";
-import { getAIReply } from "../services/ai.js";
-import { sendWhatsAppMessage, markMessageAsRead, startTypingIndicator, stopTypingIndicator } from "../services/whatsapp.js";
+import { sendWhatsAppMessage, showTypingIndicator, stopTypingIndicator } from "../services/whatsapp.js";
 import { getConversation, saveConversationTurn } from "../services/conversationMemory.js";
 import { getDatabase } from "../services/database.js";
 
@@ -25,9 +24,18 @@ function isSimpleAffirmation(text) {
   return /^(yego|yee|ego|yes|oya|hoya|ntabwo|none|okay|ok|sawa|murakoze|thank you|thanks|ni sawa|birashoboka|ndabyemeye)[.!?\s]*$/i.test(text.trim());
 }
 
-function isMarketplaceIntent(text) {
+function isClearlyUnrelated(text) {
+  const q = normalize(text);
+  return /\b(politics?|president|election|football|soccer|weather|recipe|religion|medical|disease|doctor|law|legal|coding|programming|crypto|bitcoin|news)\b/i.test(q);
+}
+
+function hasMarketplaceIntent(text) {
   const q = normalize(text);
   return /\b(gura|kugura|igiciro|price|product|igicuruzwa|order|commande|shop|market|available|mufite|mufiteho|ndashaka|shaka|laptop|phone|telefoni|imyenda|shirt|computer|solar|furniture|ibikoresho|serivisi|website|app|mobile)\b/i.test(q);
+}
+
+function recentUserMessage(conversation) {
+  return [...(conversation?.history || [])].reverse().find(item => item?.role === "user")?.text || "";
 }
 
 async function marketplaceReply(text, conversation) {
@@ -45,20 +53,29 @@ async function marketplaceReply(text, conversation) {
     ORDER BY id
   `)).rows;
 
-  if (isSimpleAffirmation(text) && conversation?.history?.length) {
-    const last = conversation.history[conversation.history.length - 1];
-    return `Nibyo 😊 ${isMarketplaceIntent(last?.text || "") ? "Mbwira igicuruzwa ushaka cyangwa nkubwire ibiciro n'amahitamo bihari." : "Hari igicuruzwa ushaka kugura cyangwa ushaka ko nkufasha guhitamo?"}`;
+  if (isSimpleAffirmation(text)) {
+    const previous = recentUserMessage(conversation);
+    if (previous && hasMarketplaceIntent(previous)) {
+      return "Ni byiza 😊 Mbwira neza igicuruzwa ushaka, ndebe ibihari n'igiciro.";
+    }
+    return "Ni byiza 😊 Hari igicuruzwa ushaka kugura cyangwa ushaka ko nkufasha guhitamo?";
+  }
+
+  if (isClearlyUnrelated(text)) {
+    return "Murakoze kutwandikira. 😊 LUMIA igufasha ku bicuruzwa na serivisi biboneka muri LUMIA Marketplace. Mbwira icyo ushaka kugura, ndagufasha kugishaka.";
   }
 
   if (/^(hi|hello|muraho|mwiriwe|mwaramutse|amakuru)/i.test(text.trim())) {
     const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
-    return "Muraho! Murakaza neza kuri LUMIA Marketplace. 😊\n\nNi iki ushaka kugura? Ushobora kuvuga izina ry'igicuruzwa cyangwa category ushaka." + (categories.length ? `\n\nUrugero: ${categories.slice(0, 5).join(", ")}.` : "");
+    return "Muraho! Murakaza neza kuri LUMIA Marketplace. 😊\n\nNi iki ushaka kugura? Ushobora kuvuga izina ry'igicuruzwa cyangwa category ushaka." +
+      (categories.length ? `\n\nUrugero: ${categories.slice(0, 5).join(", ")}.` : "");
   }
 
   const exactMatches = products.filter(p => {
     const name = normalize(p.name);
     return name && (q === name || q.includes(name) || name.includes(q));
   });
+
   const words = q.split(/\s+/).filter(w => w.length > 2);
   const matches = exactMatches.length ? exactMatches : products.filter(p => {
     const hay = normalize(`${p.name} ${p.category} ${p.description || ""}`);
@@ -67,7 +84,7 @@ async function marketplaceReply(text, conversation) {
 
   if (matches.length) {
     const list = matches.slice(0, 5).map((p, i) => {
-      const price = Number(p.price) > 0 ? Number(p.price).toLocaleString() + " " + (p.currency || "RWF") : "Igiciro ubisabire";
+      const price = Number(p.price) > 0 ? `${Number(p.price).toLocaleString()} ${p.currency || "RWF"}` : "Igiciro ubisabire";
       return `${i + 1}. ${p.name}\n   ${p.description || "Igicuruzwa kiboneka muri LUMIA Marketplace."}\n   Igiciro: ${price}\n   Link: ${productLink(p.id)}`;
     }).join("\n\n");
     return `Dore ibyo nabonye bijyanye n'icyo ushaka:\n\n${list}\n\nHitamo igicuruzwa ushaka, cyangwa umbwire niba ushaka ibindi bisa na byo.`;
@@ -77,7 +94,6 @@ async function marketplaceReply(text, conversation) {
     return "Ni byiza 😊 Mbwira igicuruzwa ushaka kugura, nk'urugero laptop, telefoni, imyenda, furniture cyangwa solar.";
   }
 
-  // Only use the refusal for clearly unrelated requests, not short confirmations or natural follow-ups.
   return "Hari igicuruzwa cyangwa serivisi ushaka muri LUMIA Marketplace? 😊";
 }
 
@@ -90,7 +106,6 @@ router.get("/", (req, res) => {
 
 router.post("/", async (req, res) => {
   res.sendStatus(200);
-
   try {
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
@@ -99,14 +114,13 @@ router.post("/", async (req, res) => {
     const from = String(message.from || "").trim();
     const text = String(message.text?.body || "").trim();
     const messageId = String(message.id || "").trim();
-    if (!from || !text) return;
+    if (!from || !text || !messageId) return;
 
     console.log(`LUMIA Marketplace received message from ${from}`);
     const conversation = await getConversation(from);
 
-    const readOk = await markMessageAsRead(messageId);
-    const typingOk = await startTypingIndicator(from, messageId);
-    console.log(`LUMIA status: read=${readOk}, typing=${typingOk}, messageId=${messageId}`);
+    const ux = await showTypingIndicator(from, messageId);
+    console.log(`LUMIA WhatsApp UX: read=${ux.read} typing=${ux.typing} messageId=${messageId}`);
 
     try {
       const reply = await marketplaceReply(text, conversation);
