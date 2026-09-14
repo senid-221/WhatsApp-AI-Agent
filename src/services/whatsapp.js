@@ -29,62 +29,83 @@ function apiError(error) {
   return error?.response?.data?.error || null;
 }
 
-async function markMessageAsRead(messageId, config) {
-  const { accessToken, phoneNumberId } = config;
-  return axios.post(
-    getUrl(phoneNumberId),
-    {
-      messaging_product: "whatsapp",
-      status: "read",
-      message_id: messageId
-    },
-    { headers: getHeaders(accessToken), timeout: 10000 }
-  );
-}
-
-async function startTypingIndicator(messageId, config) {
-  const { accessToken, phoneNumberId } = config;
-  return axios.post(
-    getUrl(phoneNumberId),
-    {
-      messaging_product: "whatsapp",
-      typing_indicator: {
-        type: "text"
-      },
-      message_id: messageId
-    },
-    { headers: getHeaders(accessToken), timeout: 10000 }
-  );
-}
-
-export async function showTypingIndicator(messageId) {
+export async function markMessageAsRead(messageId) {
   if (!messageId) return false;
-
   try {
-    const config = getConfig();
-
-    // Mark the incoming message as read first.
-    await markMessageAsRead(messageId, config);
+    const { accessToken, phoneNumberId } = getConfig();
+    await axios.post(
+      getUrl(phoneNumberId),
+      {
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: messageId
+      },
+      { headers: getHeaders(accessToken), timeout: 10000 }
+    );
     console.log("LUMIA marked incoming WhatsApp message as read.");
-
-    // Then start WhatsApp's typing indicator using the Cloud API payload.
-    await startTypingIndicator(messageId, config);
-    console.log("LUMIA started WhatsApp typing indicator.");
-
     return true;
   } catch (error) {
     const meta = apiError(error);
-    const code = meta?.code;
-    const status = error?.response?.status;
-
-    if (status === 401 || code === 190) {
-      console.warn("LUMIA read/typing authentication failed. Check WHATSAPP_ACCESS_TOKEN and PHONE_NUMBER_ID.");
-    } else {
-      console.warn("LUMIA read/typing indicator unavailable:", meta?.message || error.message);
-    }
-
+    console.warn("LUMIA read receipt failed:", meta?.message || error.message);
     return false;
   }
+}
+
+export async function startTypingIndicator(messageId) {
+  if (!messageId) return false;
+  try {
+    const { accessToken, phoneNumberId } = getConfig();
+    await axios.post(
+      getUrl(phoneNumberId),
+      {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: undefined,
+        type: "text",
+        text: { body: " " }
+      },
+      { headers: getHeaders(accessToken), timeout: 10000 }
+    );
+    return true;
+  } catch (error) {
+    const meta = apiError(error);
+    console.warn("LUMIA typing indicator failed:", meta?.message || error.message);
+    return false;
+  }
+}
+
+export async function sendTypingIndicator(messageId) {
+  if (!messageId) return false;
+  try {
+    const { accessToken, phoneNumberId } = getConfig();
+    await axios.post(
+      getUrl(phoneNumberId),
+      {
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: messageId,
+        typing_indicator: { type: "text" }
+      },
+      { headers: getHeaders(accessToken), timeout: 10000 }
+    );
+    console.log("LUMIA started WhatsApp typing indicator.");
+    return true;
+  } catch (error) {
+    const meta = apiError(error);
+    console.warn("LUMIA typing indicator failed:", meta?.message || error.message);
+    return false;
+  }
+}
+
+export async function stopTypingIndicator(messageId) {
+  // WhatsApp Cloud API typing indicator automatically stops when the business sends a message.
+  return Boolean(messageId);
+}
+
+export async function showTypingIndicator(messageId) {
+  const read = await markMessageAsRead(messageId);
+  const typing = await sendTypingIndicator(messageId);
+  return read && typing;
 }
 
 export async function sendWhatsAppMessage(to, text) {
