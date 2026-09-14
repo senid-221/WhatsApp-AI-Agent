@@ -7,6 +7,13 @@ dotenv.config();
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 
 app.get("/", (req, res) => {
   res.status(200).json({ name: "LUMIA", status: "online" });
@@ -14,6 +21,43 @@ app.get("/", (req, res) => {
 
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok", service: "LUMIA" });
+});
+
+app.get("/api/marketplace/products", async (req, res) => {
+  try {
+    const { getDatabase } = await import("./services/database.js");
+    const result = await getDatabase().query("SELECT * FROM marketplace_products WHERE in_stock = TRUE ORDER BY id DESC");
+    res.json({ products: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to load products" });
+  }
+});
+
+app.post("/api/marketplace/orders", async (req, res) => {
+  try {
+    const { customerName, phone, productId, quantity = 1 } = req.body;
+    if (!customerName || !phone || !productId) return res.status(400).json({ error: "customerName, phone and productId are required" });
+    const { getDatabase } = await import("./services/database.js");
+    const result = await getDatabase().query(
+      "INSERT INTO marketplace_orders (customer_name, phone, product_id, quantity) VALUES ($1,$2,$3,$4) RETURNING *",
+      [customerName, phone, productId, quantity]
+    );
+    res.status(201).json({ order: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to create order" });
+  }
+});
+
+app.get("/api/portal/marketplace/orders", async (req, res) => {
+  try {
+    const { getDatabase } = await import("./services/database.js");
+    const result = await getDatabase().query(
+      "SELECT o.*, p.name AS product_name, p.image_url FROM marketplace_orders o LEFT JOIN marketplace_products p ON p.id=o.product_id ORDER BY o.created_at DESC"
+    );
+    res.json({ orders: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to load orders" });
+  }
 });
 
 app.get("/api/portal/conversations", async (req, res) => {
