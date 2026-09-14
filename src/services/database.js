@@ -55,6 +55,55 @@ export async function initDatabase() {
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
 
+
+  await db.query(`CREATE TABLE IF NOT EXISTS marketplace_partners (
+    id BIGSERIAL PRIMARY KEY,
+    business_name TEXT NOT NULL,
+    owner_name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    whatsapp_number TEXT NOT NULL,
+    location TEXT,
+    business_category TEXT,
+    description TEXT,
+    online_store_url TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','suspended')),
+    application_fee NUMERIC(14,2) NOT NULL DEFAULT 40000,
+    payment_method TEXT NOT NULL DEFAULT 'MOMO PAY',
+    payment_reference TEXT,
+    payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid','submitted','verified','rejected')),
+    approved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+
+  await db.query(`CREATE TABLE IF NOT EXISTS partner_products (
+    id BIGSERIAL PRIMARY KEY,
+    partner_id BIGINT NOT NULL REFERENCES marketplace_partners(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    description TEXT,
+    price NUMERIC(14,2),
+    currency TEXT NOT NULL DEFAULT 'RWF',
+    image_url TEXT,
+    in_stock BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+
+  await db.query(`CREATE TABLE IF NOT EXISTS partner_orders (
+    id BIGSERIAL PRIMARY KEY,
+    partner_id BIGINT NOT NULL REFERENCES marketplace_partners(id),
+    partner_product_id BIGINT REFERENCES partner_products(id),
+    customer_name TEXT,
+    customer_phone TEXT NOT NULL,
+    customer_whatsapp TEXT,
+    product_name TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    payment_method TEXT NOT NULL DEFAULT 'cash_on_delivery',
+    payment_status TEXT NOT NULL DEFAULT 'pending',
+    proof_message TEXT,
+    status TEXT NOT NULL DEFAULT 'new',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
+
   const seeded = await db.query("SELECT COUNT(*)::int AS count FROM marketplace_products");
   if (seeded.rows[0].count === 0) {
     const products = [
