@@ -18,6 +18,27 @@ app.get("/health", (req, res) => {
 
 app.use("/webhook", whatsappRouter);
 
+app.get("/api/portal/overview", async (req, res) => {
+  try {
+    const { getDatabase } = await import("./services/database.js");
+    const db = getDatabase();
+    const conversations = await db.query("SELECT COUNT(*)::int AS count FROM conversation_sessions");
+    const messages = await db.query("SELECT COUNT(*)::int AS count FROM conversation_messages");
+    const contacts = await db.query("SELECT COUNT(DISTINCT phone)::int AS count FROM conversation_messages");
+
+    res.json({
+      agent: { name: "LUMIA", status: "online", memoryHours: 12, database: "PostgreSQL" },
+      stats: {
+        conversations: conversations.rows[0].count,
+        messages: messages.rows[0].count,
+        contacts: contacts.rows[0].count
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const port = process.env.PORT || 3000;
 
 async function startServer() {
