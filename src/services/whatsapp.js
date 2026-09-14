@@ -1,6 +1,5 @@
 import axios from "axios";
 
-let typingDisabled = false;
 
 function cleanToken(value) {
   return typeof value === "string" ? value.trim().replace(/^Bearer\s+/i, "") : "";
@@ -33,11 +32,23 @@ function apiError(error) {
 }
 
 export async function showTypingIndicator(messageId) {
-  if (!messageId || typingDisabled) return false;
+  if (!messageId) return false;
 
   try {
     const { accessToken, phoneNumberId } = getConfig();
 
+    // WhatsApp requires the incoming message to be marked as read first.
+    await axios.post(
+      getUrl(phoneNumberId),
+      {
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: messageId
+      },
+      { headers: getHeaders(accessToken), timeout: 10000 }
+    );
+
+    // Start the typing indicator while LUMIA prepares its response.
     await axios.post(
       getUrl(phoneNumberId),
       {
@@ -57,8 +68,7 @@ export async function showTypingIndicator(messageId) {
 
     // Typing is optional. Never allow it to stop the customer's reply.
     if (status === 401 || code === 190) {
-      typingDisabled = true;
-      console.warn("LUMIA typing indicator disabled: WhatsApp authentication failed. Check WHATSAPP_ACCESS_TOKEN and PHONE_NUMBER_ID.");
+      console.warn("LUMIA read/typing authentication failed. Check WHATSAPP_ACCESS_TOKEN and PHONE_NUMBER_ID.");
     } else {
       console.warn("LUMIA typing indicator unavailable:", meta?.message || error.message);
     }
