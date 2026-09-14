@@ -7,10 +7,8 @@ function cleanToken(value) {
 function getConfig() {
   const accessToken = cleanToken(process.env.WHATSAPP_ACCESS_TOKEN) || cleanToken(process.env.WHATSAPP_TOKEN);
   const phoneNumberId = String(process.env.PHONE_NUMBER_ID || "").trim();
-
   if (!accessToken) throw new Error("Missing WhatsApp access token. Set WHATSAPP_ACCESS_TOKEN in Render.");
   if (!phoneNumberId) throw new Error("Missing PHONE_NUMBER_ID in Render.");
-
   return { accessToken, phoneNumberId };
 }
 
@@ -19,10 +17,7 @@ function getUrl(phoneNumberId) {
 }
 
 function getHeaders(accessToken) {
-  return {
-    Authorization: `Bearer ${accessToken}`,
-    "Content-Type": "application/json"
-  };
+  return { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
 }
 
 function apiError(error) {
@@ -35,54 +30,58 @@ export async function markMessageAsRead(messageId) {
     const { accessToken, phoneNumberId } = getConfig();
     const response = await axios.post(
       getUrl(phoneNumberId),
-      {
-        messaging_product: "whatsapp",
-        status: "read",
-        message_id: messageId,
-        typing_indicator: { type: "text" }
-      },
+      { messaging_product: "whatsapp", status: "read", message_id: messageId },
       { headers: getHeaders(accessToken), timeout: 10000 }
     );
-    console.log("LUMIA read+typing request accepted:", response.data);
+    console.log("LUMIA read receipt accepted:", response.data);
     return true;
   } catch (error) {
     const meta = apiError(error);
-    console.warn("LUMIA read+typing request failed:", meta?.message || error.message, meta || "");
+    console.warn("LUMIA read receipt failed:", meta?.message || error.message, meta || "");
     return false;
   }
 }
 
-export async function startTypingIndicator(_to, _messageId) {
-  return false;
-}
-
-export async function sendTypingIndicator(_messageId, _to) {
-  return false;
+export async function startTypingIndicator(messageId) {
+  if (!messageId) return false;
+  try {
+    const { accessToken, phoneNumberId } = getConfig();
+    const response = await axios.post(
+      getUrl(phoneNumberId),
+      {
+        messaging_product: "whatsapp",
+        typing_indicator: { type: "text" },
+        message_id: messageId
+      },
+      { headers: getHeaders(accessToken), timeout: 10000 }
+    );
+    console.log("LUMIA typing indicator accepted:", response.data);
+    return true;
+  } catch (error) {
+    const meta = apiError(error);
+    console.warn("LUMIA typing indicator failed:", meta?.message || error.message, meta || "");
+    return false;
+  }
 }
 
 export async function stopTypingIndicator(messageId) {
   return Boolean(messageId);
 }
 
-export async function showTypingIndicator(_to, messageId) {
-  return markMessageAsRead(messageId);
+export async function showTypingIndicator(messageId) {
+  const read = await markMessageAsRead(messageId);
+  const typing = await startTypingIndicator(messageId);
+  return { read, typing };
 }
 
 export async function sendWhatsAppMessage(to, text) {
   const { accessToken, phoneNumberId } = getConfig();
-
   try {
     const response = await axios.post(
       getUrl(phoneNumberId),
-      {
-        messaging_product: "whatsapp",
-        to,
-        type: "text",
-        text: { body: text }
-      },
+      { messaging_product: "whatsapp", to, type: "text", text: { body: text } },
       { headers: getHeaders(accessToken), timeout: 15000 }
     );
-
     return response.data;
   } catch (error) {
     const meta = apiError(error);
