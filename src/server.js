@@ -27,6 +27,22 @@ app.get("/api/portal/conversations", async (req, res) => {
   }
 });
 
+app.get("/api/portal/history", async (req, res) => {
+  try {
+    const customer = String(req.query.customer || "");
+    if (!customer) return res.status(400).json({ error: "customer is required" });
+    const { getDatabase } = await import("./services/database.js");
+    const db = getDatabase();
+    const result = await db.query(
+      "SELECT role, text, created_at FROM conversation_messages WHERE phone = $1 ORDER BY created_at ASC",
+      [customer]
+    );
+    res.json({ customer, messages: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to load history" });
+  }
+});
+
 app.use("/webhook", whatsappRouter);
 
 app.get("/api/portal/overview", async (req, res) => {
