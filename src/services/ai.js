@@ -1,27 +1,34 @@
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 
 let client = null;
 
 function getClient() {
-  if (!client && process.env.OPENAI_API_KEY) {
-    client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) return null;
+
+  if (!client) {
+    client = new GoogleGenAI({ apiKey });
   }
+
   return client;
 }
 
 export async function getAIReply(message) {
-  const openai = getClient();
+  const ai = getClient();
 
-  if (!openai) {
-    return "LUMIA is online, but its AI key has not been configured yet.";
+  if (!ai) {
+    return "LUMIA is online, but its Gemini AI key has not been configured yet.";
   }
 
-  const response = await openai.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-5",
-    instructions:
-      "You are LUMIA, a helpful, friendly WhatsApp AI assistant. Reply clearly and naturally. You can speak Kinyarwanda, English, or the user's language.",
-    input: message,
+  const response = await ai.models.generateContent({
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    contents: message,
+    config: {
+      systemInstruction:
+        "You are LUMIA, a helpful, friendly WhatsApp AI assistant. Reply clearly and naturally. You can speak Kinyarwanda, English, or the user's language.",
+    },
   });
 
-  return response.output_text || "Sorry, I could not generate a response.";
+  return response.text || "Sorry, I could not generate a response.";
 }
