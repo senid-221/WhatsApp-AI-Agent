@@ -142,6 +142,61 @@ app.get("/api/portal/history", async (req, res) => {
 });
 
 
+
+// Partner authentication: bcrypt hashes passwords; JWT keeps dashboard sessions stateless.
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+const PARTNER_JWT_SECRET = process.env.PARTNER_JWT_SECRET || process.env.JWT_SECRET || "change-this-secret-in-production";
+const partnerAuth = (req,res,next) => {
+  try {
+    const token=(req.headers.authorization||"").replace(/^Bearer\s+/,"");
+    if(!token) return res.status(401).json({error:"Partner authentication required"});
+    req.partner=jwt.verify(token,PARTNER_JWT_SECRET);
+    next();
+  } catch { return res.status(401).json({error:"Invalid or expired partner session"}); }
+};
+app.post("/api/partner/auth/login", async (req,res)=>{
+  try {
+    const {whatsappNumber,password}=req.body;
+    if(!whatsappNumber||!password)return res.status(400).json({error:"WhatsApp number and password are required"});
+    const {getDatabase}=await import("./services/database.js");
+    const db=getDatabase();
+    const partner=(await db.query("SELECT * FROM marketplace_partners WHERE whatsapp_number=$1",[whatsappNumber])).rows[0];
+    if(!partner||!partner.password_hash)return res.status(401).json({error:"Invalid login details or account not activated"});
+    if(partner.status!=="approved")return res.status(403).json({error:"Your Partner account has not been approved yet"});
+    const valid=await bcrypt.compare(password,partner.password_hash);
+    if(!valid)return res.status(401).json({error:"Invalid WhatsApp number or password"});
+    await db.query("UPDATE marketplace_partners SET last_login_at=NOW() WHERE id=$1",[partner.id]);
+    const token=jwt.sign({partnerId:partner.id,businessName:partner.business_name},PARTNER_JWT_SECRET,{expiresIn:"7d"});
+    res.json({token,partner:{id:partner.id,businessName:partner.business_name,ownerName:partner.owner_name,whatsappNumber:partner.whatsapp_number,status:partner.status}});
+  }catch(error){console.error("Partner login error",error);res.status(500).json({error:"Unable to sign in"});}
+});
+app.post("/api/partner/auth/activate", async (req,res)=>{
+  try {
+    const {partnerId,password,activationCode}=req.body;
+    if(!partnerId||!password)return res.status(400).json({error:"Partner ID and password are required"});
+    if(password.length<8)return res.status(400).json({error:"Password must contain at least 8 characters"});
+    // Activation can be protected by PARTNER_ACTIVATION_CODE; Admin can set it in Render.
+    if(process.env.PARTNER_ACTIVATION_CODE && activationCode!==process.env.PARTNER_ACTIVATION_CODE)return res.status(403).json({error:"Invalid activation code"});
+    const {getDatabase}=await import("./services/database.js"); const db=getDatabase();
+    const partner=(await db.query("SELECT * FROM marketplace_partners WHERE id=$1",[partnerId])).rows[0];
+    if(!partner)return res.status(404).json({error:"Partner not found"});
+    if(partner.status!=="approved")return res.status(403).json({error:"Partner must be approved before account activation"});
+    const hash=await bcrypt.hash(password,12);
+    await db.query("UPDATE marketplace_partners SET password_hash=$1 WHERE id=$2",[hash,partnerId]);
+    res.json({message:"Partner account activated. You can now sign in."});
+  }catch(error){res.status(500).json({error:"Unable to activate account"});}
+});
+app.get("/api/partner/me",partnerAuth,async(req,res)=>{
+  try{const {getDatabase}=await import("./services/database.js");const p=(await getDatabase().query("SELECT id,business_name,owner_name,whatsapp_number,location,business_category,status,payment_status,last_login_at FROM marketplace_partners WHERE id=$1",[req.partner.partnerId])).rows[0];res.json({partner:p});}catch{res.status(500).json({error:"Unable to load partner profile"});}
+});
+app.get("/api/partner/orders",partnerAuth,async(req,res)=>{
+  try{const {getDatabase}=await import("./services/database.js");const rows=(await getDatabase().query("SELECT * FROM partner_orders WHERE partner_id=$1 ORDER BY created_at DESC",[req.partner.partnerId])).rows;res.json({orders:rows});}catch{res.status(500).json({error:"Unable to load partner orders"});}
+});
+app.post("/api/partner/products",partnerAuth,async(req,res)=>{
+  try{const {name,category,description="",price=0,currency="RWF",imageUrl="",inStock=true}=req.body;if(!name||!category)return res.status(400).json({error:"name and category are required"});const {getDatabase}=await import("./services/database.js");const db=getDatabase();const partner=(await db.query("SELECT status FROM marketplace_partners WHERE id=$1",[req.partner.partnerId])).rows[0];if(!partner||partner.status!=="approved")return res.status(403).json({error:"Only approved partners can publish products"});const row=(await db.query("INSERT INTO partner_products (partner_id,name,category,description,price,currency,image_url,in_stock) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",[req.partner.partnerId,name,category,description,price,currency,imageUrl,inStock])).rows[0];res.status(201).json({product:row});}catch{res.status(500).json({error:"Unable to publish product"});}
+});
+
 app.post("/api/marketplace/partners/apply", async (req,res)=>{
   try {
     const { businessName, ownerName, phone, whatsappNumber, location="", businessCategory="", description="", onlineStoreUrl="", paymentReference="" } = req.body;
