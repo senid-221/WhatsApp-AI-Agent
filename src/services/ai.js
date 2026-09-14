@@ -33,6 +33,26 @@ function historyText(history = []) {
     .join("\n");
 }
 
+function isRetryableGeminiError(error) {
+  const status = error?.status || error?.response?.status;
+  const code = error?.code || error?.error?.code;
+  const message = String(error?.message || error?.error?.message || "");
+  return status === 429 || status === 408 || status >= 500 || code === 429 || /RESOURCE_EXHAUSTED|UNAVAILABLE|DEADLINE_EXCEEDED|rate.?limit/i.test(message);
+}
+
+function retryDelayMs(attempt) {
+  const base = 1200 * 2 ** attempt;
+  const jitter = Math.floor(Math.random() * 500);
+  return Math.min(base + jitter, 10000);
+}
+
+function friendlyGeminiError(error) {
+  if (isRetryableGeminiError(error)) {
+    return "LUMIA iri kubona traffic nyinshi kuri AI yayo ubu. Ongera wohereze ubutumwa mu kanya gato.";
+  }
+  return "Mbabarira, hari ikibazo cy'igihe gito mu gutunganya igisubizo. Ongera ugerageze.";
+}
+
 export async function getAIReply(
   message,
   conversation = { isNewSession: true, history: [] },
@@ -57,7 +77,7 @@ export async function getAIReply(
     ? "Iki ni ikiganiro gishya. Tangira mu buryo busanzwe kandi bugufi gusa igihe greeting ikenewe."
     : "Iki ni ikiganiro gikomeje. Ntusubire kuri greeting cyangwa kuri answer yabanje. Komeza ukoresheje context iri muri conversation.";
 
-  const response = await ai.models.generateContent({
+  const request = {
     model: process.env.GEMINI_MODEL || "gemini-3.6-flash",
     contents: context,
     config: {
@@ -92,8 +112,23 @@ export async function getAIReply(
         "Intego ni ukugira LUMIA assistant wumva umuntu, igasubiza neza ikibazo cye, ikibuka context, igashakisha amakuru agezweho igihe bikenewe, kandi igafasha customer kugera ku cyo akeneye mu buryo busanzwe."
       ].join("\n")
     }
-  });
+  };
 
-  const reply = cleanReply(response.text);
-  return reply || "Mbabarira, sinabashije gutegura igisubizo. Ongera ugerageze.";
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await ai.models.generateContent(request);
+      const reply = cleanReply(response.text);
+      return reply || "Mbabarira, sinabashije gutegura igisubizo. Ongera ugerageze.";
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableGeminiError(error) || attempt === 2) break;
+      const delay = retryDelayMs(attempt);
+      console.warn(`LUMIA Gemini retry ${attempt + 1}/2 after ${delay}ms:`, error?.message || error);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  console.error("LUMIA Gemini request failed:", lastError?.message || lastError);
+  return friendlyGeminiError(lastError);
 }
