@@ -1,12 +1,10 @@
 import axios from "axios";
 
-
 function cleanToken(value) {
   return typeof value === "string" ? value.trim().replace(/^Bearer\s+/i, "") : "";
 }
 
 function getConfig() {
-  // Prefer the explicit production variable. WHATSAPP_TOKEN is only a legacy fallback.
   const accessToken = cleanToken(process.env.WHATSAPP_ACCESS_TOKEN) || cleanToken(process.env.WHATSAPP_TOKEN);
   const phoneNumberId = String(process.env.PHONE_NUMBER_ID || "").trim();
 
@@ -31,24 +29,47 @@ function apiError(error) {
   return error?.response?.data?.error || null;
 }
 
+async function markMessageAsRead(messageId, config) {
+  const { accessToken, phoneNumberId } = config;
+  return axios.post(
+    getUrl(phoneNumberId),
+    {
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: messageId
+    },
+    { headers: getHeaders(accessToken), timeout: 10000 }
+  );
+}
+
+async function startTypingIndicator(messageId, config) {
+  const { accessToken, phoneNumberId } = config;
+  return axios.post(
+    getUrl(phoneNumberId),
+    {
+      messaging_product: "whatsapp",
+      typing_indicator: {
+        type: "text"
+      },
+      message_id: messageId
+    },
+    { headers: getHeaders(accessToken), timeout: 10000 }
+  );
+}
+
 export async function showTypingIndicator(messageId) {
   if (!messageId) return false;
 
   try {
-    const { accessToken, phoneNumberId } = getConfig();
+    const config = getConfig();
 
-    // WhatsApp requires the incoming message to be marked as read first.
-    await axios.post(
-      getUrl(phoneNumberId),
-      {
-        messaging_product: "whatsapp",
-        status: "read",
-        message_id: messageId
-      },
-      { headers: getHeaders(accessToken), timeout: 10000 }
-    );
+    // Mark the incoming message as read first.
+    await markMessageAsRead(messageId, config);
+    console.log("LUMIA marked incoming WhatsApp message as read.");
 
-    // Start the official Cloud API typing indicator after marking the message as read.\n    // The indicator remains active while the response is being prepared.\n    await axios.post(\n      getUrl(phoneNumberId),\n      {\n        messaging_product: "whatsapp",\n        status: "read",\n        message_id: messageId,\n        typing_indicator: { type: "text" }\n      },\n      { headers: getHeaders(accessToken), timeout: 10000 }\n    );\n\n    console.log("LUMIA marked message as read and started typing indicator.");
+    // Then start WhatsApp's typing indicator using the Cloud API payload.
+    await startTypingIndicator(messageId, config);
+    console.log("LUMIA started WhatsApp typing indicator.");
 
     return true;
   } catch (error) {
@@ -56,11 +77,10 @@ export async function showTypingIndicator(messageId) {
     const code = meta?.code;
     const status = error?.response?.status;
 
-    // Typing is optional. Never allow it to stop the customer's reply.
     if (status === 401 || code === 190) {
       console.warn("LUMIA read/typing authentication failed. Check WHATSAPP_ACCESS_TOKEN and PHONE_NUMBER_ID.");
     } else {
-      console.warn("LUMIA typing indicator unavailable:", meta?.message || error.message);
+      console.warn("LUMIA read/typing indicator unavailable:", meta?.message || error.message);
     }
 
     return false;
