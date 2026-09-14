@@ -64,7 +64,7 @@ router.post("/", async (req, res) => {
 
     console.log("LUMIA Marketplace received message from " + from);
     const conversation = await getConversation(from);
-    try { await showTypingIndicator(messageId); } catch (e) { console.warn("Typing indicator error:", e.message); }
+    // Typing is optional and must never prevent the Marketplace reply.\n    await showTypingIndicator(messageId);
 
     const reply = await marketplaceReply(text, from);
     await sendWhatsAppMessage(from, reply);
