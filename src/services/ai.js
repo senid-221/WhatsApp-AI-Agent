@@ -53,6 +53,29 @@ function friendlyGeminiError(error) {
   return "Mbabarira, hari ikibazo cy'igihe gito mu gutunganya igisubizo. Ongera ugerageze.";
 }
 
+function antigravityEnabled() {
+  return String(process.env.AI_PROVIDER || "gemini").trim().toLowerCase() === "antigravity";
+}
+
+async function getAntigravityReply(ai, context) {
+  const interaction = await ai.interactions.create({
+    agent: process.env.ANTIGRAVITY_AGENT || "antigravity-preview-05-2026",
+    input: context,
+    environment: "remote",
+    agent_config: {
+      type: "antigravity",
+      model: process.env.ANTIGRAVITY_MODEL || "gemini-3.8-flash",
+      max_total_tokens: Number(process.env.ANTIGRAVITY_MAX_TOTAL_TOKENS || 12000)
+    },
+    tools: [
+      { type: "google_search" },
+      { type: "url_context" }
+    ]
+  });
+
+  return cleanReply(interaction.output_text || interaction.outputText || "");
+}
+
 export async function getAIReply(
   message,
   conversation = { isNewSession: true, history: [] },
@@ -72,6 +95,16 @@ export async function getAIReply(
       : "Nta marketplace context yihariye yatanzwe kuri ubu.",
     `Response variation seed: ${randomSeed()}`
   ].join("\n\n");
+
+  if (antigravityEnabled()) {
+    try {
+      const reply = await getAntigravityReply(ai, context);
+      return reply || "Mbabarira, sinabashije gutegura igisubizo. Ongera ugerageze.";
+    } catch (error) {
+      console.error("LUMIA Antigravity request failed:", error?.message || error);
+      return "Mbabarira, LUMIA AI ntiyabashije kubona igisubizo kuri ubu. Ongera ugerageze akanya gato.";
+    }
+  }
 
   const sessionRule = conversation.isNewSession
     ? "Iki ni ikiganiro gishya. Tangira mu buryo busanzwe kandi bugufi gusa igihe greeting ikenewe."
